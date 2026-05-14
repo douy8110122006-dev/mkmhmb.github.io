@@ -1,47 +1,59 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 
 const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY
+  apiKey: process.env.GEMINI_API_KEY,
 });
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({
-      error: "Chỉ hỗ trợ phương thức POST"
-    });
-  }
-
   try {
-    const { imageBase64, mimeType, prompt } = req.body;
-
-    if (!imageBase64 || !mimeType || !prompt) {
-      return res.status(400).json({
-        error: "Thiếu ảnh hoặc prompt"
+    if (req.method !== "POST") {
+      return res.status(405).json({
+        error: "Chỉ hỗ trợ phương thức POST",
       });
     }
 
-    const systemPrompt = `
-Bạn là chuyên gia AI render kiến trúc và diễn họa công trình.
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({
+        error: "Chưa cấu hình GEMINI_API_KEY trên Vercel",
+      });
+    }
 
-Nhiệm vụ:
-Từ ảnh công trình thô do người dùng cung cấp, tạo ra một ảnh render kiến trúc chân thực, đẹp, có tính thương mại.
+    const { imageBase64, mimeType, prompt } = req.body || {};
 
-Nguyên tắc bắt buộc:
-1. Giữ nguyên phối cảnh ảnh gốc.
-2. Giữ nguyên hình khối chính của công trình.
-3. Không tự ý thay đổi số tầng.
-4. Không tự ý thêm công trình lớn khác.
-5. Có thể cải thiện vật liệu, ánh sáng, cây xanh, mặt tiền, cửa, kính, sân, nền, bầu trời.
-6. Kết quả phải giống ảnh render kiến trúc chuyên nghiệp.
-7. Bắt buộc trả về hình ảnh hoàn chỉnh, không chỉ mô tả bằng chữ.
+    if (!imageBase64) {
+      return res.status(400).json({
+        error: "Thiếu imageBase64",
+      });
+    }
 
-Chất lượng mong muốn:
-- Photorealistic architectural visualization.
-- High detail.
-- Clean facade.
-- Realistic materials.
-- Natural lighting.
-- Professional exterior render.
+    if (!mimeType) {
+      return res.status(400).json({
+        error: "Thiếu mimeType",
+      });
+    }
+
+    if (!prompt) {
+      return res.status(400).json({
+        error: "Thiếu prompt",
+      });
+    }
+
+    const finalPrompt = `
+Bạn là AI render kiến trúc chuyên nghiệp.
+
+Hãy chỉnh ảnh công trình người dùng gửi thành ảnh render kiến trúc chân thực.
+
+Yêu cầu bắt buộc:
+- Giữ nguyên phối cảnh ảnh gốc.
+- Giữ nguyên hình khối chính.
+- Không tự ý đổi số tầng.
+- Không tự ý thêm công trình lớn khác.
+- Cải thiện vật liệu, mặt tiền, ánh sáng, cây xanh, bầu trời.
+- Kết quả phải là ảnh render kiến trúc hoàn chỉnh.
+- Bắt buộc trả về hình ảnh, không chỉ trả lời bằng chữ.
+
+Yêu cầu người dùng:
+${prompt}
 `;
 
     const response = await ai.models.generateContent({
@@ -51,55 +63,57 @@ Chất lượng mong muốn:
           role: "user",
           parts: [
             {
-              text: `${systemPrompt}\n\nYêu cầu của người dùng:\n${prompt}`
+              text: finalPrompt,
             },
             {
               inlineData: {
                 mimeType,
-                data: imageBase64
-              }
-            }
-          ]
-        }
+                data: imageBase64,
+              },
+            },
+          ],
+        },
       ],
       config: {
-        responseModalities: [Modality.TEXT, Modality.IMAGE]
-      }
+        responseModalities: [Modality.TEXT, Modality.IMAGE],
+      },
     });
-
-    let outputImage = null;
-    let outputMimeType = "image/png";
-    let outputText = "";
 
     const parts = response?.candidates?.[0]?.content?.parts || [];
 
+    let imageResult = null;
+    let resultMimeType = "image/png";
+    let textResult = "";
+
     for (const part of parts) {
       if (part.text) {
-        outputText += part.text;
+        textResult += part.text;
       }
 
       if (part.inlineData?.data) {
-        outputImage = part.inlineData.data;
-        outputMimeType = part.inlineData.mimeType || "image/png";
+        imageResult = part.inlineData.data;
+        resultMimeType = part.inlineData.mimeType || "image/png";
       }
     }
 
-    if (!outputImage) {
+    if (!imageResult) {
       return res.status(500).json({
-        error: "Gemini không trả về ảnh. Hãy thử prompt khác.",
-        text: outputText
+        error: "Gemini không trả về ảnh. Hãy thử prompt khác hoặc ảnh khác.",
+        text: textResult,
       });
     }
 
     return res.status(200).json({
-      imageBase64: outputImage,
-      mimeType: outputMimeType,
-      text: outputText
+      imageBase64: imageResult,
+      mimeType: resultMimeType,
+      text: textResult,
     });
   } catch (error) {
+    console.error("GEMINI_ERROR:", error);
+
     return res.status(500).json({
       error: "Lỗi khi gọi Gemini API",
-      detail: error.message
+      detail: error?.message || String(error),
     });
   }
 }
