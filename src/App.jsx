@@ -1,6 +1,26 @@
 import { useState } from "react";
 
-function fileToBase64(file) {
+function handleImageChange(event) {
+  const file = event.target.files[0];
+
+  if (!file) return;
+
+  const maxSizeMB = 2;
+  const maxSizeBytes = maxSizeMB * 1024 * 1024;
+
+  if (file.size > maxSizeBytes) {
+    setError(`Ảnh quá nặng. Vui lòng chọn ảnh dưới ${maxSizeMB} MB.`);
+    setImageFile(null);
+    setPreviewImage("");
+    setResultImage("");
+    return;
+  }
+
+  setImageFile(file);
+  setPreviewImage(URL.createObjectURL(file));
+  setResultImage("");
+  setError("");
+}
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
